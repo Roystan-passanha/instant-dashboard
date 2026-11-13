@@ -1,0 +1,8 @@
+{
+  "name": "instant-dashboard",
+  "version": "1.0.0",
+  "description": "Upload an Excel or CSV file and get a dashboard, built in the browser",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test tests/*.test.js" }
+}
