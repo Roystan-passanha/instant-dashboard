@@ -97,13 +97,15 @@ function frame(host, height, label) {
 /**
  * Trend line. series: [{ name, values }] (null = no data). Up to 4 series.
  */
-export function lineChart(host, { labels, series, label, title, f = fmt, ff = fmtFull }) {
+export function lineChart(host, { labels, series, label, title, f = fmt, ff = fmtFull, fc = null, height = 260 }) {
+  // fc is an optional forecast { from, values, low, high }: drawn dashed, with a shaded range
   const multi = series.length > 1;
   const endW = multi ? Math.min(110, maxOf(series.map(s => textWidth(s.name))) + 14) : 16;
-  const H = 260, m = { l: 50, r: endW, t: 12, b: 26 };
+  const H = height, m = { l: 50, r: endW, t: 12, b: 26 };
   const { root, width, tip } = frame(host, H, title || label);
   const all = [];
   for (const s of series) for (const v of s.values) if (v !== null && Number.isFinite(v)) all.push(v);
+  if (fc) all.push(...fc.low, ...fc.high);
   const tk = ticks(Math.min(0, minOf(all)), Math.max(0, maxOf(all)));
   const lo = tk[0], hi = tk[tk.length - 1];
   const pw = width - m.l - m.r, ph = H - m.t - m.b, n = labels.length;
@@ -134,6 +136,17 @@ export function lineChart(host, { labels, series, label, title, f = fmt, ff = fm
     root.append(svg('path', { d, fill: 'none', stroke: SERIES[si], 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
     if (n === 1 && s.values[0] !== null) root.append(svg('circle', { cx: x(0), cy: y(s.values[0]), r: 4, fill: SERIES[si] }));
   });
+  if (fc) {
+    const last = fc.from - 1, lv = series[0].values[last];
+    const xs = fc.values.map((_, k) => x(fc.from + k));
+    const band = [`M${x(last)},${y(lv)}`, ...fc.high.map((v, k) => `L${xs[k]},${y(v)}`), ...fc.low.map((v, k) => `L${xs[k]},${y(v)}`).reverse(), 'Z'].join('');
+    root.append(svg('path', { d: band, fill: SERIES[0], opacity: 0.14 }));
+    root.append(svg('path', { d: `M${x(last)},${y(lv)}` + fc.values.map((v, k) => `L${xs[k]},${y(v)}`).join(''), fill: 'none', stroke: SERIES[0], 'stroke-width': 2, 'stroke-dasharray': '5 5', 'stroke-linecap': 'round' }));
+    // a thin divider and a word, so the estimate is never mistaken for data
+    const dx = (x(last) + xs[0]) / 2;
+    root.append(svg('line', { x1: dx, x2: dx, y1: m.t, y2: m.t + ph, class: 'grid' }));
+    root.append(svg('text', { x: Math.min(dx + 6, m.l + pw - 52), y: m.t + 10, class: 'tick' }, 'Estimate'));
+  }
   if (multi) {
     // end labels, nudged apart so they never overlap
     const ends = series.map((s, si) => { const i = s.values.findLastIndex(v => v !== null); return i < 0 ? null : { si, name: s.name, y: y(s.values[i]) }; }).filter(Boolean).sort((a, b) => a.y - b.y);
@@ -155,11 +168,13 @@ export function lineChart(host, { labels, series, label, title, f = fmt, ff = fm
     const i = n === 1 ? 0 : Math.max(0, Math.min(n - 1, Math.round(((px - m.l) / pw) * (n - 1))));
     cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('visibility', 'visible');
     let top = H;
+    const est = fc && i >= fc.from ? i - fc.from : -1;
     series.forEach((s, si) => {
-      const v = s.values[i];
+      const v = est >= 0 ? fc.values[est] : s.values[i] ?? null;
       dots[si].setAttribute('visibility', v === null ? 'hidden' : 'visible');
       if (v !== null) { dots[si].setAttribute('cx', x(i)); dots[si].setAttribute('cy', y(v)); top = Math.min(top, y(v)); }
     });
+    if (est >= 0) { tip.show(x(i), top, labels[i], [{ name: 'Estimate', value: ff(fc.values[est]) }, { name: 'Likely range', value: `${f(fc.low[est])} to ${f(fc.high[est])}` }]); return; }
     tip.show(x(i), top, labels[i], series.map((s, si) => ({ color: multi ? SERIES[si] : null, name: s.name || label, value: s.values[i] === null ? 'no data' : ff(s.values[i]) })));
   };
   const leave = () => { tip.hide(); cross.setAttribute('visibility', 'hidden'); dots.forEach(d => d.setAttribute('visibility', 'hidden')); };
@@ -168,7 +183,7 @@ export function lineChart(host, { labels, series, label, title, f = fmt, ff = fm
 }
 
 /** Ranked horizontal bars. items: [{ key, value, count, other }] already sorted. */
-export function barChart(host, { items, label, title, total, f = fmt, ff = fmtFull }) {
+export function barChart(host, { items, label, title, total, f = fmt, ff = fmtFull, onPick = null }) {
   const row = 30, bar = 18, m = { t: 4, b: 4 };
   const H = m.t + m.b + items.length * row;
   const { root, width, tip } = frame(host, H, title || label);
@@ -202,6 +217,12 @@ export function barChart(host, { items, label, title, total, f = fmt, ff = fmtFu
       g.classList.add('is-hover');
     });
     hit.addEventListener('mouseleave', () => { tip.hide(); g.classList.remove('is-hover'); });
+    if (onPick && !it.other) {
+      // a bar can be opened for details with the mouse or the keyboard
+      for (const [k, v] of Object.entries({ tabindex: 0, role: 'button', 'aria-label': `${it.key}: ${ff(it.value)}. Open details`, class: 'pick' })) hit.setAttribute(k, v);
+      hit.addEventListener('click', () => { tip.hide(); onPick(it.key); });
+      hit.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(it.key); } });
+    }
     g.append(hit);
     root.append(g);
   });

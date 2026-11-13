@@ -132,6 +132,16 @@ const labelFor = (ord, grain) => {
   return grain === 'week' ? labelDay(ord * 7 + 4) : labelDay(ord);
 };
 
+export const periodLabel = labelFor;
+/** First day of a period and first day of the next one, as day numbers. */
+function periodBounds(ord, grain) {
+  const d = (y, m) => Math.round(Date.UTC(y, m, 1) / 86400000);
+  if (grain === 'year') return [d(ord, 0), d(ord + 1, 0)];
+  if (grain === 'quarter') return [d(Math.floor(ord / 4), (ord % 4) * 3), d(Math.floor((ord + 1) / 4), ((ord + 1) % 4) * 3)];
+  if (grain === 'month') return [d(Math.floor(ord / 12), ord % 12), d(Math.floor((ord + 1) / 12), (ord + 1) % 12)];
+  return grain === 'week' ? [ord * 7 + 4, ord * 7 + 11] : [ord, ord + 1];
+}
+
 /**
  * Values over time, optionally split by a column (up to four lines; more are folded into "Other").
  * Empty periods are filled in. If the grouping asked for would give more than 500 points, a coarser one is used.
@@ -165,8 +175,12 @@ export function timeSeries(rows, date, measure, agg, grain = 'auto', split = -1)
   }
   const ords = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
   const empty = agg === 'avg' ? null : 0;
+  // the last period is "partial" when the data stops well before the period ends
+  let lastDay = -Infinity;
+  for (const r of dated) { const n = dayNum(r[date].date); if (n > lastDay) lastDay = n; }
+  const [from, to] = periodBounds(hi, g);
   return {
-    grain: g, asked, undated, labels: ords.map(o => labelFor(o, g)),
+    grain: g, asked, undated, last: hi, partial: (lastDay - from + 1) / (to - from) < 0.6, labels: ords.map(o => labelFor(o, g)),
     series: names.map(name => ({ name: name === 'all' ? '' : name, values: ords.map(o => (cells.has(name + '|' + o) ? reduce(cells.get(name + '|' + o), agg) : empty)) }))
   };
 }
@@ -204,6 +218,60 @@ export function histogram(rows, measure, target = 10) {
   return bins;
 }
 
+/**
+ * Straight-line forecast: fits a line through the values and extends it.
+ * Needs at least 6 points. With skipLast, the last value is left out of the fit (an unfinished period)
+ * and the forecast starts at that period instead of after it.
+ * @returns null, or { from, values, low, high, slope } where `from` is the index of the first forecast point.
+ *          low/high are a rough 80% range based on how far past points sat from the line.
+ */
+export function forecast(values, steps = 3, skipLast = false) {
+  const n = values.length - (skipLast ? 1 : 0);
+  const pts = [];
+  for (let i = 0; i < n; i++) if (typeof values[i] === 'number' && Number.isFinite(values[i])) pts.push([i, values[i]]);
+  if (pts.length < 6) return null;
+  const mx = pts.reduce((a, p) => a + p[0], 0) / pts.length, my = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+  let sxx = 0, sxy = 0;
+  for (const [x, y] of pts) { sxx += (x - mx) ** 2; sxy += (x - mx) * (y - my); }
+  if (!sxx) return null;
+  const slope = sxy / sxx, icpt = my - slope * mx;
+  const sd = Math.sqrt(pts.reduce((a, [x, y]) => a + (y - (icpt + slope * x)) ** 2, 0) / Math.max(1, pts.length - 2));
+  const floor = pts.every(p => p[1] >= 0) ? 0 : -Infinity;
+  const out = { from: n, values: [], low: [], high: [], slope };
+  for (let k = 0; k < steps; k++) {
+    const x = n + k, y = icpt + slope * x;
+    const half = 1.28 * sd * Math.sqrt(1 + 1 / pts.length + (x - mx) ** 2 / sxx);
+    out.values.push(Math.max(floor, y)); out.low.push(Math.max(floor, y - half)); out.high.push(Math.max(floor, y + half));
+  }
+  return out;
+}
+
+/**
+ * Everything about one value of one column (one sales rep, one region): its totals, its rank,
+ * and what it is made of in the other columns (how many customers, which ones matter most).
+ */
+export function profile(model, c, dim, key) {
+  const rows = applyFilters(model.rows, c.filters);
+  const m = c.agg === 'count' ? -1 : c.measure;
+  const keyOf = r => (blank(r[dim]) ? BLANK : isDateCell(r[dim]) ? r[dim].date : String(r[dim]));
+  const mine = rows.filter(r => keyOf(r) === key);
+  const groups = groupBy(rows, dim, m, c.agg).filter(g => g.key !== BLANK);
+  const me = groups.find(g => g.key === key);
+  const sum = groups.reduce((a, g) => a + g.value, 0);
+  const positive = groups.every(g => g.value >= 0) && sum > 0;
+  return {
+    key, column: model.headers[dim], rows: mine.length, value: me ? me.value : null,
+    rank: me ? groups.indexOf(me) + 1 : null, of: groups.length,
+    share: me && c.agg !== 'avg' && positive ? me.value / sum : null,
+    measures: model.measures.map(col => ({ name: col.name, percent: col.percent, ratio: col.ratio, total: defaultAgg(col) === 'avg' ? null : total(mine, col.index, 'sum'), average: total(mine, col.index, 'avg') })),
+    related: [...model.dimensions, ...model.entities].filter(col => col.index !== dim && !col.unique).map(col => {
+      const g = groupBy(mine, col.index, m, c.agg).filter(x => x.key !== BLANK);
+      return { name: col.name, distinct: g.length, top: g.slice(0, 5) };
+    }).filter(x => x.distinct > 0),
+    trend: c.date >= 0 && mine.length ? timeSeries(mine, c.date, m, c.agg, c.grain) : null
+  };
+}
+
 const AGG_WORD = { sum: 'Total', avg: 'Average' };
 /** "Total Revenue", "Average Salary", "Number of rows". A header that already says Total/Average is left alone. */
 export function measureLabel(model, c) {
@@ -223,7 +291,13 @@ export function kpis(model, c) {
     if (c.agg === 'sum' && !col.ratio) out.push({ label: measureLabel(model, { ...c, agg: 'sum' }), value: total(rows, c.measure, 'sum'), kind: 'number', col });
     out.push({ label: measureLabel(model, { ...c, agg: 'avg' }), value: total(rows, c.measure, 'avg'), kind: 'number', col });
   }
-  if (c.dimension >= 0) out.push({ label: `${model.headers[c.dimension]} groups`, value: new Set(rows.map(r => r[c.dimension]).filter(v => !blank(v)).map(String)).size, kind: 'count' });
+  if (c.dimension >= 0) {
+    // the best performer in the column being compared
+    const m = c.agg === 'count' ? -1 : c.measure;
+    const g = groupBy(rows, c.dimension, m, c.agg).filter(x => x.key !== BLANK && (c.agg !== 'avg' || x.count >= 3));
+    if (g.length >= 2) out.push({ label: `Highest ${model.headers[c.dimension]}`, value: g[0].key, amount: g[0].value, kind: 'top', col: m >= 0 ? model.cols[m] : null });
+    else out.push({ label: `${model.headers[c.dimension]} groups`, value: new Set(rows.map(r => r[c.dimension]).filter(v => !blank(v)).map(String)).size, kind: 'count' });
+  }
   if (c.date >= 0) {
     const ds = rows.map(r => r[c.date]).filter(isDateCell).map(v => v.date).sort();
     if (ds.length) out.push({ label: `${model.headers[c.date]} range`, value: `${ds[0]} to ${ds[ds.length - 1]}`, kind: 'text' });

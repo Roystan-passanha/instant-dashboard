@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { clean } from '../js/cleaner.js';
 import { makeSample } from '../js/sample.js';
-import { buildModel, defaultChoices, groupBy, topN, timeSeries, histogram, suggestions, findings, kpis, total, applyFilters, pickGrain } from '../js/analyze.js';
+import { buildModel, defaultChoices, groupBy, topN, timeSeries, histogram, suggestions, findings, kpis, total, applyFilters, pickGrain, forecast, profile } from '../js/analyze.js';
 
 const sample = () => { const s = makeSample(900); return buildModel(clean(s.headers, s.rows, { hr: false })); };
 
@@ -155,4 +155,43 @@ test('small files do not get trend claims', () => {
   const rows = Array.from({ length: 12 }, (_, i) => [`c${i}`, D(`2026-${String(i + 1).padStart(2, '0')}-05`), 100 + i * 10]);
   const m = buildModel(clean(['Campaign Name', 'Send Date', 'Spend'], rows, { hr: false }));
   assert.ok(!findings(m, defaultChoices(m)).some(x => /second half/.test(x)));
+});
+
+test('forecast extends a straight line and gives a range', () => {
+  const f = forecast([10, 20, 30, 40, 50, 60], 3);
+  assert.equal(f.from, 6);
+  assert.deepEqual(f.values.map(v => Math.round(v)), [70, 80, 90]);
+  assert.ok(f.low[0] <= 70 && f.high[0] >= 70);
+  assert.equal(forecast([1, 2, 3], 3), null); // too few points
+  const noisy = forecast([100, 90, 120, 95, 130, 110, 140, 20], 2, true); // unfinished last period left out
+  assert.equal(noisy.from, 7);
+  assert.ok(noisy.values[0] > 100);
+  assert.ok(noisy.high[1] - noisy.low[1] > noisy.high[0] - noisy.low[0] - 1e-9); // range widens further out
+  assert.ok(forecast([50, 40, 30, 20, 10, 5], 4).values.every(v => v >= 0)); // never below zero for positive data
+});
+
+test('timeSeries marks an unfinished last period', () => {
+  const rows = [];
+  for (let m = 1; m <= 6; m++) rows.push([D(`2025-0${m}-15`), 10], [D(`2025-0${m}-27`), 10]);
+  assert.equal(timeSeries(rows, 0, 1, 'sum', 'month').partial, false);
+  rows.push([D('2025-07-03'), 10]);
+  assert.equal(timeSeries(rows, 0, 1, 'sum', 'month').partial, true);
+});
+
+test('profile describes one sales rep', () => {
+  const m = sample(), c = defaultChoices(m);
+  const rep = m.headers.indexOf('Sales Rep'), rev = m.headers.indexOf('Revenue'), cust = m.headers.indexOf('Customer');
+  const p = profile(m, c, rep, 'Omar Ali');
+  const mine = m.rows.filter(r => r[rep] === 'Omar Ali');
+  assert.equal(p.rows, mine.length);
+  assert.equal(p.value, mine.reduce((a, r) => a + r[rev], 0));
+  assert.ok(p.rank >= 1 && p.rank <= 8 && p.of === 8);
+  assert.ok(p.share > 0 && p.share < 1);
+  const customers = p.related.find(x => x.name === 'Customer');
+  assert.equal(customers.distinct, new Set(mine.map(r => r[cust])).size);
+  assert.equal(customers.top.length, 5);
+  assert.ok(customers.top[0].value >= customers.top[1].value);
+  assert.ok(p.measures.some(x => x.name === 'Units' && x.total > 0));
+  assert.ok(p.trend.labels.length >= 6);
+  assert.equal(kpis(m, c).find(k => k.kind === 'top').label, 'Highest Product');
 });

@@ -17,6 +17,11 @@ The file is read inside the browser. Nothing is uploaded.
 5. **Suggested charts.** A list of every chart that fits the data, each with the reason it was suggested. Tick to add, untick to remove.
 6. **What stands out.** Plain sentences worked out from the numbers: the largest share, the best and worst period, whether the second half of the period is higher than the first, and rows with unusually large values.
 
+Two add-ons can be switched on or off in the sidebar:
+
+- **Forecast.** The trend line is extended a few periods ahead as a dashed estimate with a likely range. It is a straight-line fit, so it ignores seasons and one-off events, and it is only shown with at least 30 rows and 6 periods.
+- **Click a bar for details.** Clicking a name in any bar chart (a sales rep, a region, a product) opens its totals, its rank and share, what it is made of in the other columns (for a sales rep: how many customers and which ones bring in the most), and its own trend. One more click filters the whole dashboard to that name.
+
 Filters sit above the charts. Every chart has a table view and a hover tooltip. "Print or save as PDF" gives a clean copy to send.
 
 ## How it is built
@@ -28,7 +33,8 @@ Plain HTML, CSS and JavaScript with no build step and no chart library.
 | `js/analyze.js` | Column roles, grouping, time series, histogram bins, suggestions and findings, as pure functions |
 | `js/charts.js` | SVG line, bar and column charts with tooltips |
 | `js/cleaner.js` | Cleaning logic shared with Data Cleaner |
-| `js/app.js` | File reading, questions, filters and layout |
+| `js/app.js` | File reading, questions, filters, details panel and layout |
+| `js/hero.js` | Particle animation on the landing page |
 | `tests/` | Tests for the analysis logic (`npm test`, Node 20+) |
 | `vendor/` | SheetJS, which reads Excel files |
 

@@ -5,29 +5,75 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Instant Dashboard</title>
   <meta name="description" content="Upload an Excel or CSV file and get a dashboard with suggested charts. The file never leaves your computer.">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%231a1a19'/><rect x='14' y='34' width='9' height='16' rx='2' fill='%233987e5'/><rect x='28' y='24' width='9' height='26' rx='2' fill='%233987e5'/><rect x='42' y='14' width='9' height='36' rx='2' fill='%233987e5'/></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%2305070d'/><rect x='14' y='34' width='9' height='16' rx='2' fill='%233987e5'/><rect x='28' y='24' width='9' height='26' rx='2' fill='%233987e5'/><rect x='42' y='14' width='9' height='36' rx='2' fill='%233987e5'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pixelify+Sans:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="landing.css">
 </head>
 <body>
+  <div id="landing">
+    <div class="lp">
+      <canvas id="hero-canvas" class="lp__canvas" aria-hidden="true"></canvas>
+      <header class="lp__nav">
+        <a class="lp__brand" href="./"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="13" width="4" height="8" rx="1" fill="#4b90ff"/><rect x="10" y="8" width="4" height="13" rx="1" fill="#4b90ff"/><rect x="17" y="3" width="4" height="18" rx="1" fill="#9cc4ff"/></svg>Instant Dashboard</a>
+        <nav class="lp__menu" aria-label="Sections">
+          <a href="#how">How it works</a>
+          <a href="#privacy">Privacy</a>
+          <a href="https://github.com/Roystan-passanha/instant-dashboard">GitHub</a>
+        </nav>
+        <a class="lp-btn lp-btn--blue lp-btn--small" href="https://roystan-passanha.github.io/data-cleaner/">Open Data Cleaner</a>
+      </header>
+      <div class="lp__mid">
+        <div id="drop" class="lp__drop" tabindex="0" role="button" aria-label="Choose a file">
+          <svg viewBox="0 0 38 38" fill="none" aria-hidden="true"><rect x="7" y="3" width="24" height="32" rx="5" stroke="#9cc4ff" stroke-width="1.6"/><path d="M19 25V13m0 0-5 5m5-5 5 5" stroke="#4b90ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <strong>Drop a file here</strong>
+          <span>.xlsx, .xls or .csv</span>
+          <input id="file" type="file" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt" hidden>
+        </div>
+      </div>
+      <div class="lp__hero">
+        <div>
+          <div class="lp__tag">Runs in your browser</div>
+          <h1 class="lp__title">Spreadsheet in.<br>Dashboard out.</h1>
+        </div>
+        <div class="lp__side">
+          <p>Drop an Excel or CSV file. It is cleaned, charted and explained in seconds, and it never leaves your computer.</p>
+          <div class="lp__actions">
+            <button class="lp-btn lp-btn--blue" id="btn-choose">Choose a file</button>
+            <button class="lp-btn lp-btn--white" id="btn-sample">Try sample data</button>
+          </div>
+          <p id="file-error" class="lp__status error" role="alert" hidden></p>
+          <p id="busy" class="lp__status" role="status" hidden>Reading the file. Large files can take a few seconds.</p>
+        </div>
+      </div>
+    </div>
+    <section class="lp-more">
+      <div class="lp-more__inner">
+        <h2 id="how">How it works</h2>
+        <ol class="lp-steps">
+          <li><b>01</b><h3>Drop a file</h3><p>Excel or CSV. Messy dates, numbers stored as text and spelling variants are fixed before anything is charted.</p></li>
+          <li><b>02</b><h3>Answer a few questions</h3><p>Which number matters most? What do you want to compare by? Each answer redraws the dashboard.</p></li>
+          <li><b>03</b><h3>Read what stands out</h3><p>Headline numbers, charts that fit the data, and plain sentences about the largest share, the trend and unusual rows.</p></li>
+        </ol>
+        <div class="lp-privacy" id="privacy">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="3" stroke="#9cc4ff" stroke-width="1.8"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#4b90ff" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <div>
+            <h3>Your file stays on your computer</h3>
+            <p>The file is read by your own browser. It is not sent to a server, and nothing is kept after you close the tab.</p>
+          </div>
+        </div>
+        <div class="lp-foot"><span>Built by Roystan Passanha</span><span><a href="https://roystan-passanha.github.io/data-cleaner/">Data Cleaner</a> · <a href="https://github.com/Roystan-passanha/instant-dashboard">Source code</a></span></div>
+      </div>
+    </section>
+  </div>
   <header class="top">
     <div class="brand"><span class="brand__mark" aria-hidden="true"></span>Instant Dashboard</div>
     <span class="muted small">Your file stays on this computer. Nothing is uploaded.</span>
   </header>
 
   <main class="wrap">
-    <section id="landing">
-      <h1>Turn a spreadsheet into a dashboard</h1>
-      <p class="lead muted">Drop an Excel or CSV file. The site cleans it, builds a starter dashboard, suggests charts that fit the data and asks a few questions to get it right.</p>
-      <div id="drop" class="drop" tabindex="0" role="button" aria-label="Choose a file">
-        <p><strong>Drop an Excel or CSV file here</strong>, or click to browse</p>
-        <p class="muted small">.xlsx, .xls or .csv</p>
-        <input id="file" type="file" accept=".xlsx,.xls,.xlsm,.csv" hidden>
-      </div>
-      <p class="muted small">No file to hand? <button class="link" id="btn-sample">Try it with sample sales data</button></p>
-      <p id="file-error" class="error" role="alert" hidden></p>
-      <p id="busy" class="busy" role="status" hidden>Reading the file. Large files can take a few seconds.</p>
-    </section>
-
     <section id="dash" hidden>
       <div class="filebar">
         <div>
@@ -57,6 +103,13 @@
             <div id="questions" class="questions"></div>
           </section>
           <section class="panel">
+            <h2>Add-ons</h2>
+            <div class="suggestions">
+              <label class="suggestion"><input type="checkbox" id="addon-forecast" checked><span class="suggestion__title">Forecast the trend</span><span class="suggestion__why">Extends the trend line a few periods ahead as a dashed estimate with a likely range.</span></label>
+              <label class="suggestion"><input type="checkbox" id="addon-drill" checked><span class="suggestion__title">Click a bar for details</span><span class="suggestion__why">Click any name in a bar chart to see its totals, its rank and what it is made of, for example a sales rep's customers and revenue.</span></label>
+            </div>
+          </section>
+          <section class="panel">
             <h2>Suggested charts</h2>
             <p class="muted small">Tick a chart to add it, untick to remove it.</p>
             <div id="suggestions" class="suggestions"></div>
@@ -77,6 +130,16 @@
     </section>
   </main>
   <footer class="foot muted small">Built by Roystan Passanha. Files are read in your browser and are not sent to any server.</footer>
+
+  <dialog id="detail" aria-labelledby="detail-title">
+    <div class="detail__head">
+      <div><p id="detail-kind" class="muted small"></p><h2 id="detail-title"></h2></div>
+      <button class="btn btn--ghost" id="detail-close">Close</button>
+    </div>
+    <div id="detail-tiles" class="tiles"></div>
+    <div id="detail-body"></div>
+    <div class="detail__foot"><button class="btn" id="detail-focus"></button></div>
+  </dialog>
 
   <script src="vendor/xlsx.full.min.js"></script>
   <script type="module" src="js/app.js"></script>

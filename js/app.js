@@ -1,7 +1,8 @@
 import { clean, isDateCell, detectHeaderRow } from './cleaner.js';
-import { buildModel, defaultChoices, defaultAgg, applyFilters, groupBy, topN, timeSeries, histogram, suggestions, findings, kpis, measureLabel, BLANK } from './analyze.js';
+import { buildModel, defaultChoices, defaultAgg, applyFilters, groupBy, topN, timeSeries, histogram, suggestions, findings, kpis, measureLabel, forecast, profile, periodLabel, BLANK } from './analyze.js';
 import { lineChart, barChart, columnChart, fmt, fmtFull, fmtPercent, SERIES } from './charts.js';
 import { makeSample } from './sample.js';
+import { startHero } from './hero.js';
 
 const $ = id => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); for (const k of kids) n.append(k); return n; };
@@ -154,6 +155,7 @@ function useTable(headers, rows, firstDataRow = 2) {
   $('file-name').textContent = state.fileName;
   $('file-meta').textContent = `${plural(model.rows.length, 'row')}, ${plural(model.cols.length, 'column')}`;
   show($('file-error'), false); show($('landing'), false); show($('dash'));
+  window.scrollTo(0, 0);
   renderNotes();
   return true;
 }
@@ -226,14 +228,20 @@ function render() {
     sel.addEventListener('change', () => { c.filters[col.index] = sel.value; render(); refocus($('filters'), fi); });
     return sel;
   });
+  // filters set from a details panel on columns that have no dropdown show as removable chips
+  for (const [i, v] of Object.entries(c.filters)) {
+    if (!v || fcols.some(col => col.index === Number(i))) continue;
+    fnodes.push(el('button', { className: 'chip', textContent: `${m.headers[i]}: ${v}  ✕`, title: 'Remove this filter', onclick: () => { delete c.filters[i]; render(); } }));
+  }
   const anyFilter = Object.values(c.filters).some(Boolean);
   if (anyFilter) fnodes.push(el('button', { className: 'link', textContent: 'Clear filters', onclick: () => { c.filters = {}; render(); } }));
   $('filters').replaceChildren(...fnodes);
   const filterText = Object.entries(c.filters).filter(([, v]) => v).map(([i, v]) => `${m.headers[i]}: ${v}`).join(', ');
 
-  const tileText = k => (k.kind === 'text' ? k.value : k.kind === 'count' ? k.value.toLocaleString('en-US') : k.value === null ? 'none' : k.col.percent ? fmtPercent(k.value) : fmt(k.value));
+  const tileText = k => (k.kind === 'text' || k.kind === 'top' ? k.value : k.kind === 'count' ? k.value.toLocaleString('en-US') : k.value === null ? 'none' : k.col.percent ? fmtPercent(k.value) : fmt(k.value));
   $('kpis').replaceChildren(...kpis(m, c).map(k => el('div', { className: 'tile' }, el('span', { className: 'tile__label', textContent: k.label }),
-    el('span', { className: 'tile__value' + (k.kind === 'text' ? ' tile__value--text' : ''), textContent: tileText(k), title: k.kind === 'number' && k.value !== null && !k.col.percent ? fmtFull(k.value) : '' }))));
+    el('span', { className: 'tile__value' + (k.kind === 'text' ? ' tile__value--text' : k.kind === 'top' ? ' tile__value--top' : ''), textContent: tileText(k), title: k.kind === 'number' && k.value !== null && !k.col.percent ? fmtFull(k.value) : '' }),
+    ...(k.kind === 'top' ? [el('span', { className: 'tile__sub', textContent: `${k.col && k.col.percent ? fmtPercent(k.amount) : fmt(k.amount)} ${c.agg === 'count' ? 'rows' : label.toLowerCase().split(' ')[0]}` })] : []))));
 
   const sugg = suggestions(m, c);
   const isOn = s => (s.id in state.toggles ? state.toggles[s.id] : s.on);
@@ -252,6 +260,20 @@ function render() {
     return;
   }
   const facts = findings(m, c, f);
+  const addons = { forecast: $('addon-forecast').checked, drill: $('addon-drill').checked };
+  // one forecast for the main trend, shared by the chart and the sentence about it
+  let main = null;
+  if (addons.forecast && c.date >= 0) {
+    const ts = timeSeries(rows, c.date, measure, c.agg, c.grain);
+    const vals = ts.series[0] ? ts.series[0].values : [];
+    const steps = Math.max(2, Math.min(6, Math.round(vals.length / 4)));
+    const fc = rows.length >= 30 ? forecast(vals, steps, ts.partial) : null; // too little data makes a forecast meaningless
+    if (fc) {
+      main = { fc, labels: fc.values.map((_, k) => periodLabel(ts.last - (ts.partial ? 1 : 0) + 1 + k, ts.grain)), partial: ts.partial };
+      const dir = Math.abs(fc.slope) < 1e-9 ? 'flat' : fc.slope > 0 ? 'rising' : 'falling';
+      facts.splice(Math.min(facts.length, 1), 0, `Forecast: the trend is ${dir}. If it continues, ${label} for ${main.labels[0]} would be about ${f(fc.values[0])} (likely between ${f(fc.low[0])} and ${f(fc.high[0])}). This is a straight-line estimate and ignores seasons and one-off events.`);
+    }
+  }
   $('findings').replaceChildren(...facts.map(t => el('li', { textContent: t })));
   show($('findings-panel'), facts.length > 0);
 
@@ -266,7 +288,15 @@ function render() {
       if (ts.grain !== ts.asked) sub.push(`"By ${ts.asked}" would give too many points to read`);
       if (ts.series.length > 1) legend = el('div', { className: 'legend' }, ...ts.series.map((x, i) => { const sw = el('span', { className: 'swatch' }); sw.style.background = SERIES[i]; return el('span', {}, sw, x.name); }));
       tableData = { head: [m.headers[s.date], ...ts.series.map(x => x.name || label)], rows: ts.labels.map((l, i) => [l, ...ts.series.map(x => x.values[i])]), counts: false };
-      if (ts.labels.length) drawFn = () => lineChart(plot, { labels: ts.labels, series: ts.series, label, title: s.title, f, ff });
+      // the forecast goes on the main one-line trend only
+      const useFc = main && s.split < 0 && s.date === c.date && ts.grain === (c.grain === 'auto' ? ts.grain : c.grain) ? main : null;
+      let labels = ts.labels;
+      if (useFc) {
+        labels = [...ts.labels.slice(0, useFc.fc.from), ...useFc.labels];
+        sub.push(`Dashed line is an estimate for the next ${useFc.labels.length} ${ts.grain}s` + (useFc.partial ? `; ${ts.labels[ts.labels.length - 1]} is not finished yet, so it is estimated too` : ''));
+        tableData.rows.push(...useFc.labels.map((l, k) => [`${l} (estimate)`, useFc.fc.values[k]]));
+      } else if (addons.forecast && s.split < 0 && s.date === c.date) sub.push('No forecast: it needs at least 30 rows and 6 periods');
+      if (ts.labels.length) drawFn = () => lineChart(plot, { labels, series: ts.series, label, title: s.title, f, ff, fc: useFc ? useFc.fc : null });
       else plot.append(el('p', { className: 'muted small', textContent: `No rows have a valid "${m.headers[s.date]}".` }));
     } else if (s.kind === 'bars') {
       const agg = s.count ? 'count' : c.agg, ms = s.count ? -1 : measure;
@@ -280,9 +310,10 @@ function render() {
       const real = items.filter(i => !i.other).length;
       if (groups.length > real) sub.push(`Largest ${real} of ${groups.length.toLocaleString('en-US')}` + (items.some(i => i.other) ? ', the rest grouped as Other' : ''));
       if (empty) sub.push(`${plural(empty.count, 'row')} with no ${m.headers[s.dim]} left out`);
+      if (addons.drill && !s.count) sub.push('Click a bar for details');
       tableData = { head: agg === 'count' ? [m.headers[s.dim], 'Rows'] : [m.headers[s.dim], lab, 'Rows'], rows: all.map(g => (agg === 'count' ? [g.key, g.count] : [g.key, g.value, g.count])), f: bff, counts: true };
       const positive = all.every(g => g.value >= 0);
-      if (items.length) drawFn = () => barChart(plot, { items, label: lab, title: s.title, total: agg === 'avg' || !positive ? 0 : all.reduce((a, g) => a + g.value, 0), f: bf, ff: bff });
+      if (items.length) drawFn = () => barChart(plot, { items, label: lab, title: s.title, total: agg === 'avg' || !positive ? 0 : all.reduce((a, g) => a + g.value, 0), f: bf, ff: bff, onPick: addons.drill && !s.count ? key => openDetail(s.dim, key) : null });
       else plot.append(el('p', { className: 'muted small', textContent: 'No rows to show.' }));
     } else {
       const bins = histogram(rows, s.measure);
@@ -326,6 +357,46 @@ function tableView({ head, rows, f, counts }, fallback) {
       ...(rows.length > shown.length ? [el('tr', {}, el('td', { colSpan: head.length, className: 'muted', textContent: `Showing the first 1,000 of ${rows.length.toLocaleString('en-US')} rows.` }))] : []))));
 }
 
+// ---------- details for one bar ----------
+function openDetail(dim, key) {
+  const { model: m, choices: c } = state;
+  const p = profile(m, c, dim, key);
+  const label = measureLabel(m, c);
+  const mcol = c.agg === 'count' ? null : m.cols[c.measure];
+  const f = mcol && mcol.percent ? fmtPercent : fmt;
+  $('detail-kind').textContent = p.column;
+  $('detail-title').textContent = key;
+  const tile = (l, v) => el('div', { className: 'tile' }, el('span', { className: 'tile__label', textContent: l }), el('span', { className: 'tile__value', textContent: v }));
+  const tiles = [tile('Rows', p.rows.toLocaleString('en-US'))];
+  if (c.agg !== 'count' && p.value !== null) tiles.push(tile(label, f(p.value)));
+  if (p.share !== null) tiles.push(tile('Share of total', fmtPercent(p.share)));
+  if (p.rank) tiles.push(tile(c.agg === 'count' ? 'Rank by rows' : `Rank by ${label.toLowerCase().split(' ')[0]}`, `${p.rank} of ${p.of}`));
+  $('detail-tiles').replaceChildren(...tiles);
+
+  const body = [];
+  const others = p.measures;
+  if (others.length) body.push(el('div', { className: 'detail__section' }, el('h3', { textContent: 'Numbers' }), el('ul', { className: 'facts' }, ...others.flatMap(x => {
+    const pf = x.percent ? fmtPercent : fmtFull, out = [];
+    if (x.total !== null) out.push(el('li', {}, el('span', { textContent: `Total ${x.name}` }), el('span', { textContent: pf(x.total) })));
+    if (x.average !== null) out.push(el('li', {}, el('span', { textContent: `Average ${x.name}` }), el('span', { textContent: pf(x.average) })));
+    return out;
+  }))));
+  if (p.related.length) body.push(el('div', { className: 'detail__section detail__grid' }, ...p.related.slice(0, 6).map(r => {
+    const max = Math.max(...r.top.map(t => Math.abs(t.value))) || 1;
+    return el('div', {}, el('h3', { textContent: `${r.name}: ${plural(r.distinct, 'different value')}` }),
+      el('ol', { className: 'rank' }, ...r.top.map(t => { const bar = el('i'); bar.style.width = `${Math.max(1, (Math.abs(t.value) / max) * 100)}%`; return el('li', {}, el('span', { textContent: t.key, title: t.key }), el('span', { textContent: c.agg === 'count' ? t.count.toLocaleString('en-US') : f(t.value) }), bar); })),
+      ...(r.distinct > r.top.length ? [el('p', { className: 'muted small', textContent: `Top ${r.top.length} by ${label.toLowerCase()}` })] : []));
+  })));
+  const plot = el('div', { className: 'plot' });
+  const trend = p.trend && p.trend.labels.length >= 2;
+  if (trend) body.push(el('div', { className: 'detail__section' }, el('h3', { textContent: `${label} over time, by ${p.trend.grain}` }), plot));
+  $('detail-body').replaceChildren(...body);
+  $('detail-focus').textContent = `Show only ${key} on the dashboard`;
+  $('detail-focus').onclick = () => { c.filters[dim] = key; $('detail').close(); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  $('detail').showModal();
+  if (trend) lineChart(plot, { labels: p.trend.labels, series: p.trend.series, label, title: `${label} over time for ${key}`, f, ff: mcol && mcol.percent ? fmtPercent : fmtFull, height: 200 });
+}
+
 // One chart failing must not stop the others from drawing.
 function drawAll() { for (const d of state.draw) { try { d(); } catch (e) { console.error(e); } } }
 
@@ -351,6 +422,11 @@ $('sheet').addEventListener('focus', () => { lastSheet = $('sheet').value; });
 $('sheet').addEventListener('change', () => { if (loadSheet(null)) lastSheet = $('sheet').value; else $('sheet').value = lastSheet; });
 $('header-row').addEventListener('change', () => { const n = parseInt($('header-row').value, 10); if (n >= 1) loadSheet(n); });
 $('btn-new').addEventListener('click', () => $('file').click());
+$('btn-choose').addEventListener('click', () => $('file').click());
+startHero($('hero-canvas'), 'bars');
 $('btn-print').addEventListener('click', () => window.print());
+$('detail-close').addEventListener('click', () => $('detail').close());
+$('detail').addEventListener('click', e => { if (e.target === $('detail')) $('detail').close(); });
+for (const id of ['addon-forecast', 'addon-drill']) $(id).addEventListener('change', () => { if (state.model) render(); });
 let timer;
 window.addEventListener('resize', () => { clearTimeout(timer); timer = setTimeout(() => { if (!$('dash').hidden) drawAll(); }, 150); });
