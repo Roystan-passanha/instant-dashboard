@@ -98,3 +98,61 @@ test('works with no numbers and no dates', () => {
   assert.ok(suggestions(m, c).some(s => s.on));
   assert.equal(kpis(m, c)[0].value, 30);
 });
+
+const D = iso => ({ date: iso });
+
+test('weeks are labelled by their Monday, with the year', () => {
+  const rows = [[D('2024-01-01'), 1], [D('2024-01-03'), 2], [D('2024-01-08'), 4], [D('2024-01-14'), 8]]; // Mon, Wed, Mon, Sun
+  const ts = timeSeries(rows, 0, 1, 'sum', 'week');
+  assert.deepEqual(ts.labels, ['1 Jan 2024', '8 Jan 2024']);
+  assert.deepEqual(ts.series[0].values, [3, 12]);
+  assert.equal(timeSeries(rows, 0, 1, 'sum', 'day').labels[0], '1 Jan 2024');
+});
+
+test('a grouping that would give too many points is coarsened', () => {
+  const rows = [[D('1950-01-01'), 1], [D('2050-12-31'), 1]];
+  const ts = timeSeries(rows, 0, 1, 'sum', 'day');
+  assert.ok(ts.labels.length <= 500);
+  assert.equal(ts.asked, 'day');
+  assert.notEqual(ts.grain, 'day');
+  assert.equal(ts.series[0].values.reduce((a, b) => a + b, 0), 2);
+});
+
+test('histogram survives extreme numbers and gives whole-number bins for small ranges', () => {
+  const big = [[1e308], [-1e308], [5], [7]];
+  assert.ok(histogram(big, 0).length >= 1);
+  assert.ok(histogram([[5e-324], [0], [1e-320]], 0).length >= 1);
+  const ratings = Array.from({ length: 40 }, (_, i) => [1 + (i % 5)]);
+  const bins = histogram(ratings, 0);
+  assert.deepEqual(bins.map(b => b.from), [1, 2, 3, 4, 5]);
+  assert.ok(bins.every(b => b.single && b.count === 8));
+});
+
+test('rates are averaged and never totalled; lat/long are not measures', () => {
+  const rows = Array.from({ length: 30 }, (_, i) => [`c${i}`, ['Email', 'SMS'][i % 2], `${30 + i}%`, 100 + i, 25.2 + i / 100, 500 + i]);
+  const m = buildModel(clean(['Campaign Name', 'Channel', 'Open Rate', 'Sent', 'Latitude', 'Spend'], rows, { hr: false }));
+  assert.deepEqual(m.measures.map(c => c.name), ['Open Rate', 'Sent', 'Spend']);
+  const c = defaultChoices(m);
+  assert.equal(m.headers[c.measure], 'Spend');
+  c.measure = m.headers.indexOf('Open Rate'); c.agg = 'sum';
+  assert.deepEqual(kpis(m, c).filter(k => k.kind === 'number').map(k => k.label), ['Average Open Rate']);
+});
+
+test('blank groups and mixed signs do not produce false shares', () => {
+  const headers = ['Ref Code', 'Reason', 'Pallets'];
+  const rows = Array.from({ length: 90 }, (_, i) => [`R${i}`, i % 3 === 0 ? 'Traffic' : null, 10]);
+  rows.push(...Array.from({ length: 10 }, (_, i) => [`S${i}`, 'Weather', 10]));
+  const m = buildModel(clean(headers, rows, { hr: false }));
+  const c = defaultChoices(m); c.dimension = m.headers.indexOf('Reason');
+  const f = findings(m, c);
+  assert.ok(f.some(x => /Traffic has the largest share.*30% of the total/.test(x)), f.join('\n')); // 300 of 1,000, not 300 of 400
+  const mixed = buildModel(clean(['Txn Code', 'Centre', 'Amount'], Array.from({ length: 40 }, (_, i) => [`T${i}`, ['Sales', 'Ops', 'HR', 'IT'][i % 4], i % 4 === 0 ? 500 : -100]), { hr: false }));
+  const fm = findings(mixed, defaultChoices(mixed));
+  assert.ok(!fm.some(x => /% of the total|make up/.test(x)), fm.join('\n'));
+});
+
+test('small files do not get trend claims', () => {
+  const rows = Array.from({ length: 12 }, (_, i) => [`c${i}`, D(`2026-${String(i + 1).padStart(2, '0')}-05`), 100 + i * 10]);
+  const m = buildModel(clean(['Campaign Name', 'Send Date', 'Spend'], rows, { hr: false }));
+  assert.ok(!findings(m, defaultChoices(m)).some(x => /second half/.test(x)));
+});

@@ -25,21 +25,29 @@
       </div>
       <p class="muted small">No file to hand? <button class="link" id="btn-sample">Try it with sample sales data</button></p>
       <p id="file-error" class="error" role="alert" hidden></p>
+      <p id="busy" class="busy" role="status" hidden>Reading the file. Large files can take a few seconds.</p>
     </section>
 
     <section id="dash" hidden>
       <div class="filebar">
         <div>
           <strong id="file-name"></strong>
-          <span id="file-meta" class="muted small"></span>
+          <span id="file-meta" class="muted small" aria-live="polite"></span>
         </div>
         <div class="filebar__actions">
           <label id="sheet-wrap" hidden>Sheet <select id="sheet"></select></label>
+          <label id="header-wrap" title="The row of the sheet that holds the column names">Headings on row <input id="header-row" type="number" min="1" inputmode="numeric"></label>
           <button class="btn" id="btn-print">Print or save as PDF</button>
           <button class="btn" id="btn-new">Use another file</button>
         </div>
       </div>
+      <p id="dash-error" class="error" role="alert" hidden></p>
+      <p id="dash-busy" class="busy" role="status" hidden>Reading the file. Large files can take a few seconds.</p>
       <p id="clean-note" class="muted small"></p>
+      <details id="warnings-wrap" class="warnings" hidden>
+        <summary id="warnings-title"></summary>
+        <ul id="warnings"></ul>
+      </details>
 
       <div class="layout">
         <aside class="side">
@@ -63,7 +71,7 @@
             <ul id="findings" class="findings"></ul>
           </section>
           <div id="charts" class="charts"></div>
-          <p id="empty" class="muted" hidden>No charts are selected. Tick one under "Suggested charts".</p>
+          <p id="empty" class="muted" hidden></p>
         </div>
       </div>
     </section>
