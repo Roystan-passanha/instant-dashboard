@@ -1,6 +1,6 @@
 import { clean, isDateCell, detectHeaderRow } from './cleaner.js';
 import { buildModel, defaultChoices, defaultAgg, applyFilters, groupBy, topN, timeSeries, histogram, suggestions, findings, kpis, measureLabel, forecast, profile, periodLabel, BLANK } from './analyze.js';
-import { lineChart, barChart, columnChart, fmt, fmtFull, fmtPercent, SERIES } from './charts.js';
+import { lineChart, barChart, pieChart, columnChart, fmt, fmtFull, fmtPercent, SERIES } from './charts.js';
 import { makeSample } from './sample.js';
 import { startHero } from './hero.js';
 
@@ -10,7 +10,7 @@ const show = (node, on = true) => { node.hidden = !on; };
 const plural = (n, one, many = one + 's') => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
 const MAX_BYTES = 30 * 1024 * 1024, MAX_ROWS = 300000;
-const state = { workbook: null, matrices: {}, csv: false, fileName: '', model: null, choices: null, toggles: {}, tables: new Set(), draw: [] };
+const state = { workbook: null, matrices: {}, csv: false, fileName: '', model: null, choices: null, toggles: {}, tables: new Set(), types: {}, draw: [] };
 
 // ---------- reading files ----------
 const serialToIso = n => { const d = XLSX.SSF.parse_date_code(n); return d ? `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}` : null; };
@@ -140,7 +140,7 @@ function useTable(headers, rows, firstDataRow = 2) {
   } catch (e) { console.error(e); fail(MESSAGES.internal); return false; }
   if (model.rows.length < 2 || !model.cols.length) { fail(MESSAGES.empty); return false; }
   const before = { model: state.model, choices: state.choices, toggles: state.toggles, tables: state.tables, summary: state.summary };
-  Object.assign(state, { model, choices: defaultChoices(model), toggles: {}, tables: new Set(), summary: result.summary });
+  Object.assign(state, { model, choices: defaultChoices(model), toggles: {}, tables: new Set(), types: {}, summary: result.summary });
   try {
     renderQuestions();
     render();
@@ -280,7 +280,7 @@ function render() {
   const cards = sugg.filter(isOn).map(s => {
     const plot = el('div', { className: 'plot' });
     const sub = [];
-    let legend = null, tableData = null, wide = false, drawFn = null;
+    let legend = null, tableData = null, wide = false, drawFn = null, pieOk = null;
     if (s.kind === 'trend') {
       wide = true;
       const ts = timeSeries(rows, s.date, measure, c.agg, c.grain, s.split);
@@ -310,10 +310,18 @@ function render() {
       const real = items.filter(i => !i.other).length;
       if (groups.length > real) sub.push(`Largest ${real} of ${groups.length.toLocaleString('en-US')}` + (items.some(i => i.other) ? ', the rest grouped as Other' : ''));
       if (empty) sub.push(`${plural(empty.count, 'row')} with no ${m.headers[s.dim]} left out`);
-      if (addons.drill && !s.count) sub.push('Click a bar for details');
-      tableData = { head: agg === 'count' ? [m.headers[s.dim], 'Rows'] : [m.headers[s.dim], lab, 'Rows'], rows: all.map(g => (agg === 'count' ? [g.key, g.count] : [g.key, g.value, g.count])), f: bff, counts: true };
       const positive = all.every(g => g.value >= 0);
-      if (items.length) drawFn = () => barChart(plot, { items, label: lab, title: s.title, total: agg === 'avg' || !positive ? 0 : all.reduce((a, g) => a + g.value, 0), f: bf, ff: bff, onPick: addons.drill && !s.count ? key => openDetail(s.dim, key) : null });
+      const whole = agg === 'avg' || !positive ? 0 : all.reduce((a, g) => a + g.value, 0);
+      pieOk = whole > 0 && groups.length > 1; // a pie only makes sense for parts that add up to a whole
+      const wantPie = state.types[s.id] === 'pie', asPie = pieOk && wantPie;
+      const onPick = addons.drill && !s.count ? key => openDetail(s.dim, key) : null;
+      if (asPie && groups.length > 8) sub.push('Largest 7 shown, the rest grouped as Other');
+      if (onPick) sub.push(asPie ? 'Click a slice for details' : 'Click a bar for details');
+      tableData = { head: agg === 'count' ? [m.headers[s.dim], 'Rows'] : [m.headers[s.dim], lab, 'Rows'], rows: all.map(g => (agg === 'count' ? [g.key, g.count] : [g.key, g.value, g.count])), f: bff, counts: true };
+      if (wantPie && !pieOk && items.length) plot.append(el('p', { className: 'muted small', textContent: groups.length < 2 ? 'A pie needs at least two groups.' : agg === 'avg' ? 'A pie shows parts of a whole, and averages do not add up to one. Under "A few questions", switch to a total or a count, or use Bar.' : 'A pie cannot show negative numbers. Use Bar.' }));
+      else if (items.length) drawFn = asPie
+        ? () => pieChart(plot, { items: topN(groups, 8, agg, true), label: lab, title: s.title, f: bf, ff: bff, onPick })
+        : () => barChart(plot, { items, label: lab, title: s.title, total: whole, f: bf, ff: bff, onPick, colours: true });
       else plot.append(el('p', { className: 'muted small', textContent: 'No rows to show.' }));
     } else {
       const bins = histogram(rows, s.measure);
@@ -326,13 +334,21 @@ function render() {
     }
     if (filterText) sub.push(`Filtered to ${filterText}`);
     const asTable = state.tables.has(s.id);
-    const toggle = el('button', { className: 'btn btn--ghost', textContent: asTable ? 'Show chart' : 'Show table' });
-    toggle.addEventListener('click', () => {
-      if (asTable) state.tables.delete(s.id); else state.tables.add(s.id);
-      render();
-      const again = [...document.querySelectorAll('.card')].find(n => n.dataset.id === s.id);
-      if (again) again.querySelector('button').focus();
-    });
+    const refocus = label => { const again = [...document.querySelectorAll('.card')].find(n => n.dataset.id === s.id); const b = again && [...again.querySelectorAll('button')].find(x => x.textContent === label); if (b) b.focus(); };
+    let toggle;
+    if (pieOk !== null) {
+      // bar charts can be switched between bar, pie and table
+      const now = asTable ? 'Table' : state.types[s.id] === 'pie' ? 'Pie' : 'Bar';
+      toggle = el('div', { className: 'seg', role: 'group', ariaLabel: 'Chart type' }, ...['Bar', 'Pie', 'Table'].map(t => {
+        const b = el('button', { textContent: t, className: now === t ? 'is-on' : '' });
+        b.setAttribute('aria-pressed', now === t);
+        b.addEventListener('click', () => { if (t === 'Table') state.tables.add(s.id); else { state.tables.delete(s.id); state.types[s.id] = t.toLowerCase(); } render(); refocus(t); });
+        return b;
+      }));
+    } else {
+      toggle = el('button', { className: 'btn btn--ghost', textContent: asTable ? 'Show chart' : 'Show table' });
+      toggle.addEventListener('click', () => { if (asTable) state.tables.delete(s.id); else state.tables.add(s.id); render(); refocus(asTable ? 'Show table' : 'Show chart'); });
+    }
     if (drawFn && !asTable) state.draw.push(drawFn);
     const card = el('section', { className: 'card' + (wide ? ' card--wide' : '') },
       el('div', { className: 'card__head' }, el('div', {}, el('h2', { textContent: s.title }), el('div', { className: 'card__sub', textContent: sub.join(' · ') })), toggle),

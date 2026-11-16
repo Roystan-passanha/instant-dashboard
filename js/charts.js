@@ -9,7 +9,7 @@ const svg = (tag, attrs = {}, text) => {
 };
 const html = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
 
-export const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)'];
+export const SERIES = [1, 2, 3, 4, 5, 6, 7, 8].map(n => `var(--series-${n})`);
 
 /** Compact number: 1,234 / 12.3K / 4.5M. */
 export function fmt(v) {
@@ -183,7 +183,7 @@ export function lineChart(host, { labels, series, label, title, f = fmt, ff = fm
 }
 
 /** Ranked horizontal bars. items: [{ key, value, count, other }] already sorted. */
-export function barChart(host, { items, label, title, total, f = fmt, ff = fmtFull, onPick = null }) {
+export function barChart(host, { items, label, title, total, f = fmt, ff = fmtFull, onPick = null, colours = false }) {
   const row = 30, bar = 18, m = { t: 4, b: 4 };
   const H = m.t + m.b + items.length * row;
   const { root, width, tip } = frame(host, H, title || label);
@@ -205,7 +205,7 @@ export function barChart(host, { items, label, title, total, f = fmt, ff = fmtFu
     const d = it.value >= 0
       ? `M${x0},${top}H${x1 - r}Q${x1},${top} ${x1},${top + r}V${bot - r}Q${x1},${bot} ${x1 - r},${bot}H${x0}Z`
       : `M${x0},${top}H${x1 + r}Q${x1},${top} ${x1},${top + r}V${bot - r}Q${x1},${bot} ${x1 + r},${bot}H${x0}Z`;
-    g.append(svg('path', { d, fill: it.other ? 'var(--muted-fill)' : SERIES[0] }));
+    g.append(svg('path', { d, fill: it.other ? 'var(--muted-fill)' : SERIES[colours ? i % SERIES.length : 0] }));
     g.append(svg('text', { x: Math.max(x0, x1) + 8, y: cy + 4, class: 'barvalue' }, f(it.value)));
     const hit = svg('rect', { x: 0, y: cy - row / 2, width, height: row, fill: 'transparent' });
     hit.addEventListener('mousemove', e => {
@@ -256,4 +256,49 @@ export function columnChart(host, { bins, label, title, f = fmt, ff = fmtFull })
     g.append(hit);
     root.append(g);
   });
+}
+
+/** Pie (drawn as a ring) for shares of a whole. items: [{ key, value, count, other }], all values 0 or more. */
+export function pieChart(host, { items, label, title, f = fmt, ff = fmtFull, onPick = null }) {
+  host.replaceChildren();
+  host.style.position = 'relative';
+  const total = items.reduce((a, i) => a + i.value, 0) || 1;
+  const size = Math.min(230, Math.max(150, host.clientWidth * 0.42)), R = size / 2 - 4, r = R * 0.56, c = size / 2;
+  const root = svg('svg', { width: size, height: size, viewBox: `0 0 ${size} ${size}`, role: 'img', 'aria-label': title || label });
+  const wrap = html('div', 'pie');
+  const list = html('ul', 'pie__legend');
+  wrap.append(root, list);
+  host.append(wrap);
+  const tip = tooltip(host);
+  const pt = (a, rad) => `${(c + rad * Math.sin(a)).toFixed(2)},${(c - rad * Math.cos(a)).toFixed(2)}`;
+  let a0 = 0;
+  items.forEach((it, i) => {
+    const share = it.value / total, a1 = a0 + share * Math.PI * 2, colour = it.other ? 'var(--muted-fill)' : SERIES[i % SERIES.length];
+    const pct = (Math.round(share * 1000) / 10) + '%';
+    let slice;
+    if (share >= 0.9999) { slice = svg('circle', { cx: c, cy: c, r: (R + r) / 2, fill: 'none', stroke: colour, 'stroke-width': R - r }); }
+    else {
+      const big = a1 - a0 > Math.PI ? 1 : 0;
+      slice = svg('path', { d: `M${pt(a0, R)}A${R},${R} 0 ${big} 1 ${pt(a1, R)}L${pt(a1, r)}A${r},${r} 0 ${big} 0 ${pt(a0, r)}Z`, fill: colour, class: 'slice' });
+    }
+    const row = html('li', 'pie__row');
+    const sw = html('span', 'swatch'); sw.style.background = colour;
+    row.append(sw, html('span', 'pie__name', it.key), html('span', 'pie__value', f(it.value)), html('span', 'pie__pct', pct));
+    row.title = `${it.key}: ${ff(it.value)} (${pct})`;
+    const mid = (a0 + a1) / 2;
+    const on = () => { slice.classList.add('is-hover'); row.classList.add('is-hover'); tip.show(c + R * 0.8 * Math.sin(mid), c - R * 0.8 * Math.cos(mid), it.key, [{ name: label, value: ff(it.value) }, { name: 'Share of total', value: pct }, { name: 'Rows', value: it.count.toLocaleString('en-US') }]); };
+    const off = () => { slice.classList.remove('is-hover'); row.classList.remove('is-hover'); tip.hide(); };
+    slice.addEventListener('mousemove', on); slice.addEventListener('mouseleave', off);
+    row.addEventListener('mouseenter', () => { slice.classList.add('is-hover'); row.classList.add('is-hover'); }); row.addEventListener('mouseleave', off);
+    if (onPick && !it.other) {
+      for (const n of [slice, row]) { n.classList.add('pick'); n.addEventListener('click', () => { tip.hide(); onPick(it.key); }); }
+      row.tabIndex = 0; row.setAttribute('role', 'button'); row.setAttribute('aria-label', `${it.key}: ${ff(it.value)}, ${pct}. Open details`);
+      row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(it.key); } });
+    }
+    root.append(slice);
+    list.append(row);
+    a0 = a1;
+  });
+  root.append(svg('text', { x: c, y: c - 2, 'text-anchor': 'middle', class: 'pie__total' }, f(total)));
+  root.append(svg('text', { x: c, y: c + 16, 'text-anchor': 'middle', class: 'tick' }, 'Total'));
 }
