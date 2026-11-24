@@ -2,6 +2,7 @@ import { clean, isDateCell, detectHeaderRow } from './cleaner.js';
 import { buildModel, defaultChoices, defaultAgg, applyFilters, groupBy, topN, timeSeries, histogram, suggestions, findings, kpis, measureLabel, forecast, profile, periodLabel, BLANK } from './analyze.js';
 import { lineChart, barChart, pieChart, columnChart, fmt, fmtFull, fmtPercent, SERIES } from './charts.js';
 import { makeSample } from './sample.js';
+import { extract, toCsv, toSheetCells, cellText } from './extract.js';
 import { startHero } from './hero.js';
 
 const $ = id => document.getElementById(id);
@@ -441,6 +442,69 @@ $('btn-new').addEventListener('click', () => $('file').click());
 $('btn-choose').addEventListener('click', () => $('file').click());
 startHero($('hero-canvas'), 'bars');
 $('btn-print').addEventListener('click', () => window.print());
+
+// ---------- pick columns ----------
+const pick = { on: new Set() };
+function pickResult() {
+  const { model: m, choices: c } = state;
+  const useFilter = !$('pick-filter-wrap').hidden && $('pick-filter').checked;
+  const rows = useFilter ? applyFilters(m.rows, c.filters) : m.rows;
+  const cols = m.headers.map((_, i) => i).filter(i => pick.on.has(i));
+  return extract(m.headers, rows, { cols, sortBy: Number($('pick-sort').value), desc: $('pick-dir').value === 'desc', dedupe: $('pick-dedupe').checked });
+}
+function drawPick() {
+  const x = pickResult();
+  const none = x.headers.length === 0;
+  $('pick-csv').disabled = $('pick-xlsx').disabled = none || x.rows.length === 0;
+  $('pick-count').textContent = none ? 'Tick at least one column.' : `${plural(x.rows.length, 'row')}, ${plural(x.headers.length, 'column')}` + (x.removed ? `. ${plural(x.removed, 'repeated row')} removed` : '') + (x.rows.length > 8 ? '. Showing the first 8' : '');
+  if (none) { $('pick-preview').replaceChildren(); return; }
+  $('pick-preview').replaceChildren(el('table', {},
+    el('thead', {}, el('tr', {}, ...x.headers.map(h => el('th', { scope: 'col', textContent: h, title: h })))),
+    el('tbody', {}, ...x.rows.slice(0, 8).map(r => el('tr', {}, ...r.map(v => el('td', { textContent: cellText(v), title: cellText(v) })))))));
+}
+function drawPickCols() {
+  const m = state.model, q = $('pick-search').value.trim().toLowerCase();
+  const shown = m.headers.map((h, i) => [h || `Column ${i + 1}`, i]).filter(([h]) => !q || h.toLowerCase().includes(q));
+  $('pick-cols').replaceChildren(...(shown.length ? shown.map(([h, i]) => {
+    const box = el('input', { type: 'checkbox', checked: pick.on.has(i) });
+    box.addEventListener('change', () => { if (box.checked) pick.on.add(i); else pick.on.delete(i); drawPick(); });
+    return el('label', { title: h }, box, el('span', { textContent: h }));
+  }) : [el('p', { className: 'muted small', textContent: 'No column has that name.' })]));
+}
+function openPick() {
+  const { model: m, choices: c } = state;
+  pick.on = new Set();
+  $('pick-search').value = '';
+  $('pick-sort').replaceChildren(el('option', { value: -1, textContent: 'Keep the sheet order' }), ...m.headers.map((h, i) => el('option', { value: i, textContent: h || `Column ${i + 1}` })));
+  $('pick-dedupe').checked = false;
+  const filterText = Object.entries(c.filters).filter(([, v]) => v).map(([i, v]) => `${m.headers[i]}: ${v}`).join(', ');
+  show($('pick-filter-wrap'), Boolean(filterText));
+  $('pick-filter').checked = true;
+  $('pick-filter-text').textContent = `Only rows matching the dashboard filter (${filterText})`;
+  drawPickCols(); drawPick();
+  $('pick').showModal();
+}
+function pickName(ext) { return `${(state.fileName || 'data').replace(/\.[^.]+$/, '')}-picked.${ext}`; }
+function saveBlob(blob, name) { const a = el('a', { href: URL.createObjectURL(blob), download: name }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+$('btn-pick').addEventListener('click', openPick);
+$('pick-close').addEventListener('click', () => $('pick').close());
+$('pick').addEventListener('click', e => { if (e.target === $('pick')) $('pick').close(); });
+$('pick-search').addEventListener('input', drawPickCols);
+$('pick-all').addEventListener('click', () => { for (const b of $('pick-cols').querySelectorAll('input')) if (!b.checked) b.click(); });
+$('pick-none').addEventListener('click', () => { pick.on = new Set(); drawPickCols(); drawPick(); });
+for (const id of ['pick-sort', 'pick-dir', 'pick-dedupe', 'pick-filter']) $(id).addEventListener('change', drawPick);
+$('pick-csv').addEventListener('click', () => { const x = pickResult(); saveBlob(new Blob(['\ufeff' + toCsv(x.headers, x.rows)], { type: 'text/csv;charset=utf-8' }), pickName('csv')); });
+$('pick-xlsx').addEventListener('click', () => {
+  const x = pickResult();
+  const cells = toSheetCells(x.headers, x.rows);
+  const ws = {};
+  cells.forEach((r, ri) => r.forEach((cell, ci) => { if (cell) ws[XLSX.utils.encode_cell({ r: ri, c: ci })] = cell; }));
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: cells.length - 1, c: x.headers.length - 1 } });
+  ws['!cols'] = x.headers.map((h, ci) => ({ wch: Math.min(40, Math.max(h.length, ...x.rows.slice(0, 200).map(r => cellText(r[ci]).length)) + 2) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Picked');
+  XLSX.writeFile(wb, pickName('xlsx'));
+});
 $('detail-close').addEventListener('click', () => $('detail').close());
 $('detail').addEventListener('click', e => { if (e.target === $('detail')) $('detail').close(); });
 for (const id of ['addon-forecast', 'addon-drill']) $(id).addEventListener('change', () => { if (state.model) render(); });

@@ -83,6 +83,7 @@
         <div class="filebar__actions">
           <label id="sheet-wrap" hidden>Sheet <select id="sheet"></select></label>
           <label id="header-wrap" title="The row of the sheet that holds the column names">Headings on row <input id="header-row" type="number" min="1" inputmode="numeric"></label>
+          <button class="btn" id="btn-pick">Pick columns</button>
           <button class="btn" id="btn-print">Print or save as PDF</button>
           <button class="btn" id="btn-new">Use another file</button>
         </div>
@@ -131,6 +132,28 @@
   </main>
   <footer class="foot muted small">Built by Roystan Passanha. Files are read in your browser and are not sent to any server.</footer>
 
+  <dialog id="pick" aria-labelledby="pick-title">
+    <div class="detail__head">
+      <div><p class="muted small">Keep only the columns you need and download them as a new file.</p><h2 id="pick-title">Pick columns</h2></div>
+      <button class="btn btn--ghost" id="pick-close">Close</button>
+    </div>
+    <div class="pick__bar">
+      <input id="pick-search" type="search" placeholder="Find a column" aria-label="Find a column">
+      <button class="link" id="pick-all" type="button">Tick all</button>
+      <button class="link" id="pick-none" type="button">Untick all</button>
+    </div>
+    <div id="pick-cols" class="pick__cols" role="group" aria-label="Columns"></div>
+    <div class="pick__opts">
+      <label>Sort by <select id="pick-sort"></select></label>
+      <label>Order <select id="pick-dir"><option value="asc">A to Z, smallest first</option><option value="desc">Z to A, largest first</option></select></label>
+      <label class="pick__check"><input type="checkbox" id="pick-dedupe"> Remove repeated rows</label>
+      <label class="pick__check" id="pick-filter-wrap" hidden><input type="checkbox" id="pick-filter" checked> <span id="pick-filter-text"></span></label>
+    </div>
+    <p id="pick-count" class="muted small" aria-live="polite"></p>
+    <div id="pick-preview" class="tablewrap"></div>
+    <p class="muted small">Excel drops the leading 0 of phone numbers when it opens a CSV file. The Excel download keeps them.</p>
+    <div class="detail__foot pick__foot"><button class="btn" id="pick-csv">Download CSV</button><button class="btn btn--primary" id="pick-xlsx">Download Excel</button></div>
+  </dialog>
   <dialog id="detail" aria-labelledby="detail-title">
     <div class="detail__head">
       <div><p id="detail-kind" class="muted small"></p><h2 id="detail-title"></h2></div>

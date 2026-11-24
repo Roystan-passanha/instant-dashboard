@@ -114,8 +114,8 @@ h2, .tile__label, .tile__value, .suggestion__title, .suggestion__why, .findings 
 .chip { font: inherit; font-size: 13px; color: var(--text); background: var(--accent-wash); border: 1px solid var(--accent); border-radius: 999px; padding: 6px 12px; cursor: pointer; }
 .tile__value--top { font-size: 19px; line-height: 1.25; padding-top: 4px; }
 .tile__sub { color: var(--text-2); font-size: 13px; }
-dialog#detail { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 18px; padding: 22px; width: min(760px, calc(100% - 24px)); max-height: calc(100dvh - 32px); }
-dialog#detail::backdrop { background: rgba(2, 4, 10, 0.72); backdrop-filter: blur(3px); }
+dialog#detail, dialog#pick { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 18px; padding: 22px; width: min(760px, calc(100% - 24px)); max-height: calc(100dvh - 32px); }
+dialog#detail::backdrop, dialog#pick::backdrop { background: rgba(2, 4, 10, 0.72); backdrop-filter: blur(3px); }
 .detail__head { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 14px; }
 .detail__head h2 { font-size: 24px; overflow-wrap: anywhere; }
 .detail__head p { margin: 0; }
@@ -153,3 +153,20 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .wrap { width: 100%; margin: 0; }
   .card, .panel, .tile { break-inside: avoid; }
 }
+
+.pick__bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+.pick__bar input { flex: 1 1 200px; min-width: 0; }
+.pick__cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 12px; max-height: 210px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+.pick__cols label { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
+.pick__cols label:hover { background: var(--accent-wash); }
+.pick__cols span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick__opts { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 14px 0 6px; font-size: 14px; }
+.pick__opts select { max-width: 220px; }
+.pick__check { display: inline-flex; align-items: center; gap: 6px; }
+.pick__foot { gap: 10px; flex-wrap: wrap; }
+#pick-preview { max-height: 240px; overflow: auto; margin: 6px 0 10px; }
+#pick-preview td, #pick-preview th { white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+@media print { dialog#pick { display: none; } }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pick__bar input { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }

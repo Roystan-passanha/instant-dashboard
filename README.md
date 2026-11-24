@@ -52,3 +52,7 @@ npm test
 ## Licence
 
 MIT. SheetJS Community Edition is Apache-2.0.
+
+## Pick columns
+
+The "Pick columns" button keeps only the columns you tick (for example Customer ID and Phone Number out of a master sheet), with optional sorting and removal of repeated rows, and downloads the result as Excel or CSV. Phone numbers keep their leading zero in the Excel download.
