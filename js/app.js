@@ -1,7 +1,8 @@
 import { clean, isDateCell, detectHeaderRow } from './cleaner.js';
-import { buildModel, defaultChoices, defaultAgg, applyFilters, groupBy, topN, timeSeries, histogram, suggestions, findings, kpis, measureLabel, forecast, profile, periodLabel, BLANK } from './analyze.js';
+import { buildModel, defaultChoices, defaultAgg, applyFilters, groupBy, topN, timeSeries, histogram, suggestions, findings, kpis, measureLabel, forecast, profile, periodLabel, scatterPoints, linkText, BLANK } from './analyze.js';
 import { lineChart, barChart, pieChart, columnChart, fmt, fmtFull, fmtPercent, SERIES } from './charts.js';
 import { makeSample } from './sample.js';
+import { eChart, CATEGORY_TYPES, TREND_TYPES, NEEDS_WHOLE } from './echart.js';
 import { extract, toCsv, toSheetCells, cellText } from './extract.js';
 import { startHero } from './hero.js';
 
@@ -281,7 +282,8 @@ function render() {
   const cards = sugg.filter(isOn).map(s => {
     const plot = el('div', { className: 'plot' });
     const sub = [];
-    let legend = null, tableData = null, wide = false, drawFn = null, pieOk = null;
+    let legend = null, tableData = null, wide = false, drawFn = null, types = null;
+    let type = state.types[s.id];
     if (s.kind === 'trend') {
       wide = true;
       const ts = timeSeries(rows, s.date, measure, c.agg, c.grain, s.split);
@@ -290,14 +292,18 @@ function render() {
       if (ts.series.length > 1) legend = el('div', { className: 'legend' }, ...ts.series.map((x, i) => { const sw = el('span', { className: 'swatch' }); sw.style.background = SERIES[i]; return el('span', {}, sw, x.name); }));
       tableData = { head: [m.headers[s.date], ...ts.series.map(x => x.name || label)], rows: ts.labels.map((l, i) => [l, ...ts.series.map(x => x.values[i])]), counts: false };
       // the forecast goes on the main one-line trend only
-      const useFc = main && s.split < 0 && s.date === c.date && ts.grain === (c.grain === 'auto' ? ts.grain : c.grain) ? main : null;
+      const split = ts.series.length > 1;
+      types = TREND_TYPES.filter(([k]) => !k.startsWith('stacked') || (split && c.agg !== 'avg'));
+      if (!types.some(([k]) => k === type)) type = 'line';
+      const useFc = type === 'line' && main && s.split < 0 && s.date === c.date && ts.grain === (c.grain === 'auto' ? ts.grain : c.grain) ? main : null;
       let labels = ts.labels;
       if (useFc) {
         labels = [...ts.labels.slice(0, useFc.fc.from), ...useFc.labels];
         sub.push(`Dashed line is an estimate for the next ${useFc.labels.length} ${ts.grain}s` + (useFc.partial ? `; ${ts.labels[ts.labels.length - 1]} is not finished yet, so it is estimated too` : ''));
         tableData.rows.push(...useFc.labels.map((l, k) => [`${l} (estimate)`, useFc.fc.values[k]]));
-      } else if (addons.forecast && s.split < 0 && s.date === c.date) sub.push('No forecast: it needs at least 30 rows and 6 periods');
-      if (ts.labels.length) drawFn = () => lineChart(plot, { labels, series: ts.series, label, title: s.title, f, ff, fc: useFc ? useFc.fc : null });
+      } else if (addons.forecast && s.split < 0 && s.date === c.date) sub.push(type === 'line' ? 'No forecast: it needs at least 30 rows and 6 periods' : 'The forecast shows on the Line type only');
+      if (ts.labels.length && type !== 'line') drawFn = () => eChart(plot, type, { labels: ts.labels, series: ts.series, label, f, ff });
+      else if (ts.labels.length) drawFn = () => lineChart(plot, { labels, series: ts.series, label, title: s.title, f, ff, fc: useFc ? useFc.fc : null });
       else plot.append(el('p', { className: 'muted small', textContent: `No rows have a valid "${m.headers[s.date]}".` }));
     } else if (s.kind === 'bars') {
       const agg = s.count ? 'count' : c.agg, ms = s.count ? -1 : measure;
@@ -313,17 +319,32 @@ function render() {
       if (empty) sub.push(`${plural(empty.count, 'row')} with no ${m.headers[s.dim]} left out`);
       const positive = all.every(g => g.value >= 0);
       const whole = agg === 'avg' || !positive ? 0 : all.reduce((a, g) => a + g.value, 0);
-      pieOk = whole > 0 && groups.length > 1; // a pie only makes sense for parts that add up to a whole
-      const wantPie = state.types[s.id] === 'pie', asPie = pieOk && wantPie;
+      const pieOk = whole > 0 && groups.length > 1; // these types only make sense for parts that add up to a whole
+      types = CATEGORY_TYPES;
+      if (!types.some(([k]) => k === type)) type = 'bar';
       const onPick = addons.drill && !s.count ? key => openDetail(s.dim, key) : null;
-      if (asPie && groups.length > 8) sub.push('Largest 7 shown, the rest grouped as Other');
-      if (onPick) sub.push(asPie ? 'Click a slice for details' : 'Click a bar for details');
+      const name = types.find(([k]) => k === type)[1];
+      const eight = topN(groups, 8, agg, true);
+      if (NEEDS_WHOLE.has(type) && groups.length > 8) sub.push('Largest 7 shown, the rest grouped as Other');
+      if (onPick && type !== 'radar') sub.push(type === 'bar' ? 'Click a bar for details' : 'Click a part for details');
       tableData = { head: agg === 'count' ? [m.headers[s.dim], 'Rows'] : [m.headers[s.dim], lab, 'Rows'], rows: all.map(g => (agg === 'count' ? [g.key, g.count] : [g.key, g.value, g.count])), f: bff, counts: true };
-      if (wantPie && !pieOk && items.length) plot.append(el('p', { className: 'muted small', textContent: groups.length < 2 ? 'A pie needs at least two groups.' : agg === 'avg' ? 'A pie shows parts of a whole, and averages do not add up to one. Under "A few questions", switch to a total or a count, or use Bar.' : 'A pie cannot show negative numbers. Use Bar.' }));
-      else if (items.length) drawFn = asPie
-        ? () => pieChart(plot, { items: topN(groups, 8, agg, true), label: lab, title: s.title, f: bf, ff: bff, onPick })
-        : () => barChart(plot, { items, label: lab, title: s.title, total: whole, f: bf, ff: bff, onPick, colours: true });
-      else plot.append(el('p', { className: 'muted small', textContent: 'No rows to show.' }));
+      const why = NEEDS_WHOLE.has(type) && !pieOk ? (groups.length < 2 ? `${name} needs at least two groups.` : agg === 'avg' ? `${name} shows parts of a whole, and averages do not add up to one. Under "A few questions", switch to a total or a count, or use Bars or Columns.` : `${name} cannot show negative numbers. Use Bars or Columns.`)
+        : type === 'radar' && groups.length < 3 ? 'Radar needs at least three groups.' : '';
+      if (why && items.length) plot.append(el('p', { className: 'muted small', textContent: why }));
+      else if (!items.length) plot.append(el('p', { className: 'muted small', textContent: 'No rows to show.' }));
+      else if (type === 'bar') drawFn = () => barChart(plot, { items, label: lab, title: s.title, total: whole, f: bf, ff: bff, onPick, colours: true });
+      else if (type === 'donut') drawFn = () => pieChart(plot, { items: eight, label: lab, title: s.title, f: bf, ff: bff, onPick });
+      else drawFn = () => eChart(plot, type, { items: NEEDS_WHOLE.has(type) ? eight : type === 'radar' ? groups.slice(0, 8) : items, label: lab, f: bf, ff: bff, total: whole, onPick });
+    } else if (s.kind === 'scatter') {
+      const sc = scatterPoints(rows, s.x, s.y, c.dimension);
+      const xn = m.headers[s.x], yn = m.headers[s.y];
+      const fx = m.cols[s.x].percent ? fmtPercent : fmt, fy = m.cols[s.y].percent ? fmtPercent : fmt;
+      sub.push(`${plural(sc.n, 'row')}, one dot each` + (sc.sampled ? ` (${sc.points.length.toLocaleString('en-US')} shown)` : ''));
+      sub.push(linkText(sc.r, yn, xn));
+      if (sc.groups.length) { sub.push(`Coloured by ${m.headers[c.dimension]}`); legend = el('div', { className: 'legend' }, ...sc.groups.map((g, i) => { const sw = el('span', { className: 'swatch' }); sw.style.background = g === 'Other' ? 'var(--muted-fill)' : SERIES[i]; return el('span', {}, sw, g); })); }
+      tableData = { head: sc.groups.length ? [xn, yn, m.headers[c.dimension]] : [xn, yn], rows: sc.points.slice(0, 500).map(p => (sc.groups.length ? [p.x, p.y, p.g] : [p.x, p.y])), f: fmtFull, counts: false };
+      if (sc.n >= 2) drawFn = () => eChart(plot, 'scatter', { points: sc.points, groups: sc.groups, xName: xn, yName: yn, f: fy, fx, ff: fmtFull });
+      else plot.append(el('p', { className: 'muted small', textContent: 'Fewer than two rows have both numbers.' }));
     } else {
       const bins = histogram(rows, s.measure);
       const hp = m.cols[s.measure].percent;
@@ -337,15 +358,16 @@ function render() {
     const asTable = state.tables.has(s.id);
     const refocus = label => { const again = [...document.querySelectorAll('.card')].find(n => n.dataset.id === s.id); const b = again && [...again.querySelectorAll('button')].find(x => x.textContent === label); if (b) b.focus(); };
     let toggle;
-    if (pieOk !== null) {
-      // bar charts can be switched between bar, pie and table
-      const now = asTable ? 'Table' : state.types[s.id] === 'pie' ? 'Pie' : 'Bar';
-      toggle = el('div', { className: 'seg', role: 'group', ariaLabel: 'Chart type' }, ...['Bar', 'Pie', 'Table'].map(t => {
-        const b = el('button', { textContent: t, className: now === t ? 'is-on' : '' });
-        b.setAttribute('aria-pressed', now === t);
-        b.addEventListener('click', () => { if (t === 'Table') state.tables.add(s.id); else { state.tables.delete(s.id); state.types[s.id] = t.toLowerCase(); } render(); refocus(t); });
-        return b;
-      }));
+    if (types) {
+      // every chart can be switched to another type that fits its data, or to a table
+      toggle = el('select', { className: 'typepick', ariaLabel: `Chart type for ${s.title}` }, ...types.map(([k, t]) => el('option', { value: k, textContent: t })), el('option', { value: 'table', textContent: 'Table' }));
+      toggle.value = asTable ? 'table' : type;
+      toggle.addEventListener('change', () => {
+        if (toggle.value === 'table') state.tables.add(s.id); else { state.tables.delete(s.id); state.types[s.id] = toggle.value; }
+        render();
+        const again = [...document.querySelectorAll('.card')].find(n => n.dataset.id === s.id);
+        if (again) again.querySelector('select').focus();
+      });
     } else {
       toggle = el('button', { className: 'btn btn--ghost', textContent: asTable ? 'Show chart' : 'Show table' });
       toggle.addEventListener('click', () => { if (asTable) state.tables.delete(s.id); else state.tables.add(s.id); render(); refocus(asTable ? 'Show table' : 'Show chart'); });

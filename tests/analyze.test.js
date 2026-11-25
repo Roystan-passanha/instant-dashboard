@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { clean } from '../js/cleaner.js';
 import { makeSample } from '../js/sample.js';
-import { buildModel, defaultChoices, groupBy, topN, timeSeries, histogram, suggestions, findings, kpis, total, applyFilters, pickGrain, forecast, profile } from '../js/analyze.js';
+import { buildModel, defaultChoices, groupBy, topN, timeSeries, histogram, suggestions, scatterPoints, linkText, findings, kpis, total, applyFilters, pickGrain, forecast, profile } from '../js/analyze.js';
 
 const sample = () => { const s = makeSample(900); return buildModel(clean(s.headers, s.rows, { hr: false })); };
 
@@ -194,4 +194,22 @@ test('profile describes one sales rep', () => {
   assert.ok(p.measures.some(x => x.name === 'Units' && x.total > 0));
   assert.ok(p.trend.labels.length >= 6);
   assert.equal(kpis(m, c).find(k => k.kind === 'top').label, 'Highest Product');
+});
+
+test('scatter points: correlation, missing numbers, grouping and thinning', () => {
+  const rows = [];
+  for (let i = 0; i < 100; i++) rows.push([i, i * 2 + 1, i % 2 ? 'A' : 'B']);
+  rows.push([null, 5, 'A'], ['x', 5, 'A']);
+  const s = scatterPoints(rows, 0, 1, 2);
+  assert.equal(s.n, 100);
+  assert.ok(Math.abs(s.r - 1) < 1e-9);
+  assert.deepEqual(s.groups.sort(), ['A', 'B']);
+  assert.equal(s.sampled, false);
+  const thin = scatterPoints(rows, 0, 1, -1, 10);
+  assert.equal(thin.points.length, 10);
+  assert.equal(thin.sampled, true);
+  assert.equal(thin.n, 100);
+  assert.equal(scatterPoints([[1, 1], [1, 2], [1, 3]], 0, 1).r, null); // x never changes
+  assert.match(linkText(0.05, 'Salary', 'Age'), /No clear link/);
+  assert.match(linkText(-0.9, 'Salary', 'Age'), /Strong link: Salary falls as Age rises/);
 });

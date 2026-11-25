@@ -331,6 +331,8 @@ export function suggestions(model, c) {
   // the chosen number first, then up to three others
   const spread = [...model.measures].sort((a, b) => (a.index === c.measure ? -1 : b.index === c.measure ? 1 : 0)).slice(0, 4);
   spread.forEach(ms => out.push({ id: `hist:${ms.index}`, kind: 'histogram', measure: ms.index, title: `How ${ms.name} is spread`, reason: `Shows whether "${ms.name}" is mostly small values with a few large ones.`, on: ms.index === c.measure && c.agg !== 'count' && model.rows.length >= 30 }));
+  // one number against another: the chosen number on the vertical axis, each other number across
+  if (c.measure >= 0 && c.agg !== 'count') model.measures.filter(ms => ms.index !== c.measure).slice(0, 3).forEach((ms, i) => out.push({ id: `scatter:${ms.index}:${c.measure}`, kind: 'scatter', x: ms.index, y: c.measure, title: `${name(c.measure)} against ${ms.name}`, reason: `Each dot is one row. Shows whether "${name(c.measure)}" rises or falls with "${ms.name}".`, on: i === 0 }));
   model.dates.filter(d => d.index !== c.date).forEach(d => out.push({ id: `trend:${d.index}`, kind: 'trend', date: d.index, split: -1, title: `${label} by ${d.name}`, reason: c.date >= 0 ? `A second date column. Useful if "${d.name}" matters more than "${name(c.date)}".` : `"${d.name}" holds dates, so the data can be shown as a trend.`, on: false }));
   if (c.measure >= 0 && c.agg !== 'count') dims.slice(0, 2).forEach(d => out.push({ id: `count:${d.index}`, kind: 'bars', dim: d.index, count: true, title: `Number of rows by ${d.name}`, reason: `Shows volume, which can tell a different story from ${lower}.`, on: false }));
   return out;
@@ -408,4 +410,37 @@ export function findings(model, c, fmt = v => String(Math.round(v * 100) / 100))
   const gap = model.cols.filter(col => used.has(col.index)).map(col => ({ col, n: rows.filter(r => blank(r[col.index])).length })).filter(b => b.n / rows.length >= 0.1).sort((a, b) => b.n - a.n)[0];
   if (gap) out.push(`"${gap.col.name}" is empty in ${pct(gap.n / rows.length)} of rows. Charts that use it leave those rows out.`);
   return out;
+}
+
+/**
+ * Points for a scatter chart of column y against column x, with the strength of the straight-line link (r).
+ * Rows missing either number are left out. Large sheets are thinned evenly to `max` dots; r always uses every row.
+ */
+export function scatterPoints(rows, x, y, dim = -1, max = 2000) {
+  const pts = [];
+  let n = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+  for (const r of rows) {
+    const a = r[x], b = r[y];
+    if (typeof a !== 'number' || typeof b !== 'number' || !Number.isFinite(a) || !Number.isFinite(b)) continue;
+    n++; sx += a; sy += b; sxx += a * a; syy += b * b; sxy += a * b;
+    pts.push({ x: a, y: b, g: dim >= 0 && r[dim] !== null && r[dim] !== undefined && r[dim] !== '' ? String(isDateCell(r[dim]) ? r[dim].date : r[dim]) : '' });
+  }
+  const vx = sxx - (sx * sx) / n, vy = syy - (sy * sy) / n;
+  const r = n > 2 && vx > 0 && vy > 0 ? (sxy - (sx * sy) / n) / Math.sqrt(vx * vy) : null;
+  const step = pts.length > max ? pts.length / max : 1;
+  const shown = step === 1 ? pts : Array.from({ length: max }, (_, i) => pts[Math.floor(i * step)]);
+  // colour by group only when there are a few groups; the rest fold into Other
+  const counts = new Map();
+  for (const p of pts) if (p.g) counts.set(p.g, (counts.get(p.g) || 0) + 1);
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 7).map(e => e[0]);
+  const groups = counts.size >= 2 ? [...top, ...(counts.size > 7 || pts.some(p => !p.g) ? ['Other'] : [])] : [];
+  if (groups.length) for (const p of shown) if (!top.includes(p.g)) p.g = 'Other';
+  return { points: shown, groups, n, r, sampled: step !== 1 };
+}
+/** One plain sentence for a correlation value. */
+export function linkText(r, yName, xName) {
+  if (r === null) return 'Not enough rows with both numbers to judge a link';
+  const a = Math.abs(r), dir = r > 0 ? 'rises' : 'falls';
+  if (a < 0.2) return `No clear link between ${yName} and ${xName}`;
+  return `${a < 0.5 ? 'Weak' : a < 0.8 ? 'Moderate' : 'Strong'} link: ${yName} ${dir} as ${xName} rises`;
 }

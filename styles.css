@@ -170,3 +170,6 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .pick__bar input { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
+.typepick { font-size: 13px; padding: 5px 8px; flex: none; max-width: 150px; }
+.plot--e { width: 100%; }
+@media print { .typepick { display: none; } .plot--e { background: #0b0f1a; border-radius: 8px; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
