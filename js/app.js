@@ -3,6 +3,7 @@ import { buildModel, defaultChoices, defaultAgg, applyFilters, groupBy, topN, ti
 import { lineChart, barChart, pieChart, columnChart, fmt, fmtFull, fmtPercent, SERIES } from './charts.js';
 import { makeSample } from './sample.js';
 import { eChart, CATEGORY_TYPES, TREND_TYPES, NEEDS_WHOLE } from './echart.js';
+import { drawShowcase, defaultShowcase } from './showcase.js';
 import { extract, toCsv, toSheetCells, cellText } from './extract.js';
 import { startHero } from './hero.js';
 
@@ -12,7 +13,7 @@ const show = (node, on = true) => { node.hidden = !on; };
 const plural = (n, one, many = one + 's') => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
 const MAX_BYTES = 30 * 1024 * 1024, MAX_ROWS = 300000;
-const state = { workbook: null, matrices: {}, csv: false, fileName: '', model: null, choices: null, toggles: {}, tables: new Set(), types: {}, draw: [] };
+const state = { workbook: null, matrices: {}, csv: false, fileName: '', model: null, choices: null, toggles: {}, tables: new Set(), types: {}, draw: [], show: false, sc: null };
 
 // ---------- reading files ----------
 const serialToIso = n => { const d = XLSX.SSF.parse_date_code(n); return d ? `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}` : null; };
@@ -142,7 +143,7 @@ function useTable(headers, rows, firstDataRow = 2) {
   } catch (e) { console.error(e); fail(MESSAGES.internal); return false; }
   if (model.rows.length < 2 || !model.cols.length) { fail(MESSAGES.empty); return false; }
   const before = { model: state.model, choices: state.choices, toggles: state.toggles, tables: state.tables, summary: state.summary };
-  Object.assign(state, { model, choices: defaultChoices(model), toggles: {}, tables: new Set(), types: {}, summary: result.summary });
+  Object.assign(state, { model, choices: defaultChoices(model), toggles: {}, tables: new Set(), types: {}, summary: result.summary, sc: defaultShowcase(state.fileName) });
   try {
     renderQuestions();
     render();
@@ -213,6 +214,19 @@ function renderQuestions() {
 
 // ---------- dashboard ----------
 function render() {
+  // the showcase and the working dashboard share the same data and filters; only one is on screen
+  document.body.classList.toggle('is-showcase', state.show);
+  show($('showcase'), state.show); show($('layout'), !state.show);
+  $('btn-show').textContent = state.show ? 'Back to dashboard' : 'Showcase view';
+  if (!state.show) return renderDash();
+  if (!state.sc) state.sc = defaultShowcase(state.fileName);
+  state.draw = [];
+  drawShowcase($('showcase'), { model: state.model, choices: state.choices, sc: state.sc, again: render, draw: state.draw,
+    onBack: () => { state.show = false; render(); },
+    onImage: () => { $('sc-image').onchange = e => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; if (file.size > 8 * 1024 * 1024) { $('dash-error').textContent = 'That picture is larger than 8 MB. Choose a smaller one.'; show($('dash-error')); return; } const r = new FileReader(); r.onload = () => { state.sc.image = r.result; render(); }; r.readAsDataURL(file); }; $('sc-image').click(); } });
+  requestAnimationFrame(drawAll);
+}
+function renderDash() {
   const { model: m, choices: c } = state;
   const rows = applyFilters(m.rows, c.filters);
   const measure = c.agg === 'count' ? -1 : c.measure;
@@ -464,6 +478,7 @@ $('btn-new').addEventListener('click', () => $('file').click());
 $('btn-choose').addEventListener('click', () => $('file').click());
 startHero($('hero-canvas'), 'bars');
 $('btn-print').addEventListener('click', () => window.print());
+$('btn-show').addEventListener('click', () => { state.show = !state.show; render(); window.scrollTo(0, 0); });
 
 // ---------- pick columns ----------
 const pick = { on: new Set() };

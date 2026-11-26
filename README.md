@@ -60,3 +60,7 @@ The "Pick columns" button keeps only the columns you tick (for example Customer 
 ## Chart types
 
 Each chart has a type menu. Category charts: bars, columns, pie, donut, rose, funnel, treemap, radar. Trends: line, smooth line, area, step line, columns, and stacked area or stacked columns when the trend is split into groups. Every chart can also be shown as a table. The extra types are drawn with [Apache ECharts](https://echarts.apache.org/) (Apache-2.0, see `vendor/`), loaded only when one is picked. When the sheet has two or more number columns, a scatter chart of one against the other is suggested, with a plain sentence on how strongly they are linked.
+
+## Showcase view
+
+One designed page for showing the result to other people: a title you can type over, tabs to switch between groups, headline numbers around an optional picture, four charts, and a choice of colour themes. It prints to a single landscape page.

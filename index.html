@@ -83,6 +83,7 @@
         <div class="filebar__actions">
           <label id="sheet-wrap" hidden>Sheet <select id="sheet"></select></label>
           <label id="header-wrap" title="The row of the sheet that holds the column names">Headings on row <input id="header-row" type="number" min="1" inputmode="numeric"></label>
+          <button class="btn btn--primary" id="btn-show">Showcase view</button>
           <button class="btn" id="btn-pick">Pick columns</button>
           <button class="btn" id="btn-print">Print or save as PDF</button>
           <button class="btn" id="btn-new">Use another file</button>
@@ -96,7 +97,9 @@
         <ul id="warnings"></ul>
       </details>
 
-      <div class="layout">
+      <section id="showcase" class="sc" aria-label="Showcase view" hidden></section>
+      <input type="file" id="sc-image" accept="image/*" hidden>
+      <div class="layout" id="layout">
         <aside class="side">
           <section class="panel">
             <h2>A few questions</h2>

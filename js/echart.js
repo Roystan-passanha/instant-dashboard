@@ -14,7 +14,6 @@ export function loadECharts() {
 }
 
 const live = new Set();
-const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const esc = t => String(t).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const short = (t, n = 16) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
 
@@ -31,18 +30,20 @@ export const NEEDS_WHOLE = new Set(['pie', 'donut', 'rose', 'funnel', 'treemap']
 export function eChart(host, kind, data) {
   host.replaceChildren();
   host.classList.add('plot--e');
-  host.style.height = (data.series ? 290 : data.points ? 340 : 320) + 'px';
+  host.style.height = (data.height || (data.series ? 290 : data.points ? 340 : 320)) + 'px';
   loadECharts().then(() => {
     if (!host.isConnected) return;
     for (const c of live) if (!c.getDom().isConnected) { c.dispose(); live.delete(c); }
     const chart = window.echarts.init(host, null, { renderer: 'svg' });
     live.add(chart);
-    chart.setOption(build(kind, data, host.clientWidth));
+    chart.setOption(build(kind, data, host.clientWidth, host));
     if (data.onPick && kind !== 'radar' && kind !== 'scatter') chart.on('click', p => { if (p && p.name && !(p.data && p.data.other)) data.onPick(p.data && p.data.key ? p.data.key : p.name); });
   }).catch(() => { host.style.height = ''; host.textContent = 'This chart type could not be loaded. Check your connection and pick it again, or use another type.'; });
 }
 
-function build(kind, d, width) {
+function build(kind, d, width, host) {
+  // colours are read from the chart's own element, so a section with its own theme gets its own colours
+  const style = getComputedStyle(host), css = n => style.getPropertyValue(n).trim();
   const colors = [1, 2, 3, 4, 5, 6, 7, 8].map(n => css('--series-' + n));
   const t = { text: css('--text'), text2: css('--text-2'), grid: css('--grid'), axis: css('--axis'), surface: css('--surface'), muted: css('--muted-fill') };
   const f = d.f, ff = d.ff;
@@ -92,6 +93,12 @@ function build(kind, d, width) {
       xAxis: { type: 'category', data: items.map(i => i.name), axisLabel: { color: t.text2, interval: 0, rotate: many ? 35 : 0, formatter: v => short(v, many ? 14 : 18) }, axisLine: { lineStyle: { color: t.axis } }, axisTick: { show: false } },
       yAxis: valueAxis,
       series: [{ type: 'bar', data: items, barMaxWidth: 46, itemStyle: { borderRadius: [4, 4, 0, 0] } }] };
+  }
+  if (kind === 'ring') {
+    return { ...base, tooltip: itemTip,
+      title: { text: f(total || items.reduce((a, i) => a + i.value, 0)), subtext: 'Total', left: 'center', top: '39%', textStyle: { color: t.text, fontSize: 18, fontWeight: 700 }, subtextStyle: { color: t.text2, fontSize: 12 }, itemGap: 4 },
+      series: [{ type: 'pie', data: items, radius: ['46%', '66%'], center: ['50%', '50%'], itemStyle: { borderColor: t.surface, borderWidth: 2 }, avoidLabelOverlap: true, minShowLabelAngle: 8,
+        label: { color: t.text2, fontSize: 11, formatter: p => `${short(p.name, 12)}\n${p.percent}%` }, labelLine: { length: 6, length2: 4, lineStyle: { color: t.axis } } }] };
   }
   if (kind === 'pie' || kind === 'rose') {
     return { ...base, tooltip: itemTip,
