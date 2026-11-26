@@ -108,8 +108,8 @@ function build(kind, d, width, host) {
   }
   if (kind === 'funnel') {
     return { ...base, tooltip: itemTip,
-      series: [{ type: 'funnel', data: [...items].sort((a, b) => b.value - a.value), sort: 'descending', left: '4%', width: narrow ? '56%' : '62%', top: 10, bottom: 10, minSize: '6%', gap: 2,
-        itemStyle: { borderColor: t.surface, borderWidth: 1 }, label: { position: 'right', color: t.text, formatter: p => `${short(p.name, narrow ? 10 : 20)}  ${f(p.value)}` }, labelLine: { lineStyle: { color: t.axis } } }] };
+      series: [{ type: 'funnel', data: [...items].sort((a, b) => b.value - a.value), sort: 'descending', left: '4%', width: width < 340 ? '42%' : narrow ? '52%' : '62%', top: 10, bottom: 10, minSize: '6%', gap: 2,
+        itemStyle: { borderColor: t.surface, borderWidth: 1 }, label: { position: 'right', color: t.text, formatter: p => `${short(p.name, width < 340 ? 11 : narrow ? 12 : 20)}  ${f(p.value)}` }, labelLine: { lineStyle: { color: t.axis } } }] };
   }
   if (kind === 'treemap') {
     return { ...base, tooltip: itemTip,
